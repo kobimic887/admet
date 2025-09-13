@@ -164,15 +164,19 @@ class AMQPAdmetReceiver:
         try:
             import pandas as pd
             if isinstance(predictions, pd.DataFrame):
-                # Convert DataFrame to list of dictionaries
-                predictions_data = predictions.to_dict(orient='records')
+                # If DataFrame has multiple rows, take the first row (first compound)
+                # Convert to a single dictionary of properties
+                if len(predictions) > 0:
+                    predictions_data = predictions.iloc[0].to_dict()
+                else:
+                    predictions_data = {}
             else:
                 predictions_data = predictions
         except Exception as e:
             logger.error(f"Error converting predictions: {e}")
-            predictions_data = str(predictions)  # Fallback to string
+            predictions_data = {}  # Fallback to empty dict
         
-        # Create payload with just the predictions
+        # Create payload with single ADMET object
         payload = {
             "admet": predictions_data
         }
@@ -181,8 +185,11 @@ class AMQPAdmetReceiver:
         print(f"   Simulation ID: {simulation_id}")
         print(f"   Payload size: {len(str(payload))} characters")
         print(f"   Predictions type: {type(predictions_data)}")
-        if isinstance(predictions_data, list) and len(predictions_data) > 0:
-            print(f"   First prediction sample: {predictions_data[0] if predictions_data else 'None'}")
+        if isinstance(predictions_data, dict) and len(predictions_data) > 0:
+            print(f"   ADMET properties count: {len(predictions_data)}")
+            # Show first few properties as sample
+            sample_props = list(predictions_data.items())[:3]
+            print(f"   Sample properties: {sample_props}")
         print(f"   Full payload preview: {str(payload)[:500]}{'...' if len(str(payload)) > 500 else ''}")
         
         success = False
