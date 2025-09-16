@@ -57,17 +57,31 @@ class AMQPAdmetReceiver:
         Parse incoming message to extract simulation_id and SMILES data.
         Expected format: {"simulation_id": "abc123def456", "smiles": ["CCO", "CCN"]}
         Or: {"simulation_id": "abc123def456", "smiles": "CCO"}
+        Or: {"simulation_id": "abc123def456", "smiles": ["smile1"],["smile2"]}
         Returns: (simulation_id, smiles_list)
         """
         raw = raw.strip()
         if not raw:
             return None, []
 
+        import re
+        
+        # Handle the special format with multiple SMILES arrays: ["smile1"],["smile2"]
+        if '"],["' in raw or '],["' in raw:
+            print(f"🔍 Detected multiple SMILES arrays format")
+            
+            # Extract simulation_id
+            sim_match = re.search(r'"simulation_id"\s*:\s*"([^"]+)"', raw)
+            simulation_id = sim_match.group(1) if sim_match else "unknown"
+            
+            # Find all SMILES arrays - match ["content"] patterns
+            smiles_arrays = re.findall(r'\["([^"]+)"\]', raw)
+            if smiles_arrays:
+                print(f"🧬 Found {len(smiles_arrays)} SMILES arrays: {smiles_arrays}")
+                return simulation_id, smiles_arrays
+
         # Try to clean up common malformed patterns
         if raw.startswith('{{') or raw.startswith('{'):
-            # Try to extract simulation_id and smiles from malformed data
-            import re
-            
             # Extract simulation_id
             sim_match = re.search(r'simulationId[:\s]*([a-zA-Z0-9]+)', raw)
             simulation_id = sim_match.group(1) if sim_match else "unknown"
@@ -265,11 +279,19 @@ class AMQPAdmetReceiver:
             print(f"🧪 Processing {len(smiles_list)} compounds for simulation {simulation_id}")
             print(f"🧬 SMILES to process: {smiles_list}")
             
-            # Run ADMET predictions - get raw output
-            predictions = self.model.predict(smiles_list)
-            
-            # Send raw predictions to API
-            self.send_predictions_to_api(simulation_id, predictions)
+            # Process each SMILES separately but send all with same simulation_id
+            for i, smiles in enumerate(smiles_list):
+                print(f"🧬 Processing SMILES {i+1}/{len(smiles_list)}: {smiles}")
+                
+                # Run ADMET predictions for single SMILES
+                predictions = self.model.predict([smiles])  # Pass as list with single item
+                
+                # Send predictions to API with same simulation_id
+                # Add compound index to distinguish multiple compounds
+                compound_label = f"compound_{i+1}" if len(smiles_list) > 1 else "compound"
+                print(f"📤 Sending predictions for {compound_label} (SMILES: {smiles})")
+                
+                self.send_predictions_to_api(simulation_id, predictions)
 
             ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:
