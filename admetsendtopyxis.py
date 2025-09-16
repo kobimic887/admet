@@ -106,7 +106,11 @@ class AMQPAdmetReceiver:
                 if isinstance(smiles_data, list):
                     smiles_list = [s.strip() for s in smiles_data if s.strip()]
                 elif isinstance(smiles_data, str):
-                    smiles_list = [smiles_data.strip()] if smiles_data.strip() else []
+                    # Check if the string contains semicolon-separated SMILES
+                    if ';' in smiles_data:
+                        smiles_list = [s.strip() for s in smiles_data.split(';') if s.strip()]
+                    else:
+                        smiles_list = [smiles_data.strip()] if smiles_data.strip() else []
                 else:
                     smiles_list = []
                 
@@ -151,6 +155,12 @@ class AMQPAdmetReceiver:
         # Try newline separated
         if '\n' in raw:
             parts = [p.strip() for p in raw.splitlines() if p.strip()]
+            if len(parts) > 1:
+                return parts
+
+        # Try semicolon separated
+        if ';' in raw:
+            parts = [p.strip() for p in raw.split(';') if p.strip()]
             if len(parts) > 1:
                 return parts
 
@@ -244,6 +254,7 @@ class AMQPAdmetReceiver:
     def predict_and_output(self, smiles_list):
         """
         Run model predictions and print ONLY the resulting data structure.
+        For multiple compounds, separate results with double semicolon (;;).
         """
         if not smiles_list:
             return
@@ -251,12 +262,19 @@ class AMQPAdmetReceiver:
         # You can change this if you want JSON output always
         predictions = self.model.predict(smiles_list)
 
-        # If the returned object is a DataFrame, convert to JSON for clean stdout
+        # If the returned object is a DataFrame, format for multiple compounds
         try:
             import pandas as pd
             if isinstance(predictions, pd.DataFrame):
-                # orient=records gives a list of dicts
-                print(predictions.to_json(orient="records"))
+                if len(predictions) == 1:
+                    # Single compound - output as before
+                    print(predictions.to_json(orient="records"))
+                else:
+                    # Multiple compounds - join with double semicolon
+                    compound_results = []
+                    for idx, row in predictions.iterrows():
+                        compound_results.append(row.to_json())
+                    print(";;".join(compound_results))
             else:
                 # Fallback: print raw
                 print(predictions)
